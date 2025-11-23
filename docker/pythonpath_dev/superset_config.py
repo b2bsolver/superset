@@ -142,3 +142,48 @@ try:
     )
 except ImportError:
     logger.info("Using default Docker config...")
+
+# =============================================================================
+# ENIM OAuth SSO Configuration
+# =============================================================================
+
+from flask_appbuilder.security.manager import AUTH_OAUTH
+from enim_sso.oauth_security_manager import EnimOAuthSecurityManager
+
+# Set authentication type to OAuth
+AUTH_TYPE = AUTH_OAUTH
+
+# Enable the custom security manager
+CUSTOM_SECURITY_MANAGER = EnimOAuthSecurityManager
+
+# Auto-register users on first OAuth login
+AUTH_USER_REGISTRATION = True
+AUTH_USER_REGISTRATION_ROLE = os.getenv("DEFAULT_ROLE_FOR_ENIM_USERS", "Enim Users")
+
+# Sync roles from OAuth provider on each login
+AUTH_ROLES_SYNC_AT_LOGIN = True
+
+# ENIM Core OAuth Provider Configuration
+# External URL for browser redirects
+ENIM_CORE_URL_EXTERNAL = os.getenv("ENIM_CORE_URL_EXTERNAL", "http://127.0.0.1:8000")
+# Internal URL for server-to-server calls (use host.docker.internal in Docker)
+ENIM_CORE_URL_INTERNAL = os.getenv("ENIM_CORE_URL_INTERNAL", "http://host.docker.internal:8000")
+
+OAUTH_PROVIDERS = [
+    {
+        "name": "enim",
+        "icon": "fa-sign-in",
+        "token_key": "access_token",
+        "remote_app": {
+            "client_id": os.getenv("ENIM_OAUTH_CLIENT_ID", "your-client-id"),
+            "client_secret": os.getenv("ENIM_OAUTH_CLIENT_SECRET", "your-client-secret"),
+            "api_base_url": f"{ENIM_CORE_URL_INTERNAL}/",
+            "access_token_url": f"{ENIM_CORE_URL_INTERNAL}/oauth/token",
+            "authorize_url": f"{ENIM_CORE_URL_EXTERNAL}/oauth/authorize",
+            "client_kwargs": {
+                "scope": "",
+                "token_endpoint_auth_method": "client_secret_post",
+            },
+        },
+    }
+]
