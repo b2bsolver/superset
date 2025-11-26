@@ -191,9 +191,10 @@ def setup_database():
     return database_id
 
 
-def setup_enim_users_role():
+def setup_enim_users_role(database_id: int) -> None:
     """Setup read-only role for external users"""
     from superset import db, security_manager
+    from superset.models.core import Database
 
     ROLE_NAME = 'Enim Users'
 
@@ -257,6 +258,7 @@ def setup_enim_users_role():
         # Essential Superset permissions
         ('can_userinfo', 'UserDBModelView'),
         ('can_csrf_token', 'Superset'),
+        ('can_recent_activity', 'Log'),
         ('can_recent_activity', 'Superset'),
         ('can_fave_dashboards', 'Superset'),
         ('can_favstar', 'Superset'),
@@ -306,6 +308,24 @@ def setup_enim_users_role():
 
     db.session.commit()
     print(f"  ✓ Added {permission_count} permissions to role")
+    database = db.session.get(Database, database_id)
+    if database:
+        print(f"\n  Granting database access for '{database.database_name}'...")
+        db_perm = security_manager.find_permission_view_menu(
+            "database_access", database.perm
+        )
+        if not db_perm:
+            security_manager.add_permission_view_menu("database_access", database.perm)
+            db_perm = security_manager.find_permission_view_menu(
+                "database_access", database.perm
+            )
+        if db_perm and db_perm not in role.permissions:
+            role.permissions.append(db_perm)
+            db.session.commit()
+            print("  ✓ Database access permission added to role")
+        else:
+            print("  ℹ Role already has database access permission")
+
     print(f"\n✓ Role setup complete!")
     print(f"  Total Permissions: {len(role.permissions)}")
 
@@ -328,7 +348,7 @@ def main():
         database_id = setup_database()
 
         # Step 3: Setup user role
-        setup_enim_users_role()
+        setup_enim_users_role(database_id)
 
         # Final summary
         print("\n" + "=" * 80)
