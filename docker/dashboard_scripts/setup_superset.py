@@ -5,6 +5,8 @@ Comprehensive setup for Superset: cleanup, database connection, and user roles
 Run: docker compose exec superset python /app/docker/dashboard_scripts/setup_superset.py
 """
 import getpass
+import os
+import shutil
 import sys
 sys.path.insert(0, '/app')
 from superset.app import create_app
@@ -330,6 +332,40 @@ def setup_enim_users_role(database_id: int) -> None:
     print(f"  Total Permissions: {len(role.permissions)}")
 
 
+def setup_custom_logo():
+    """Copy custom logo to static assets directory"""
+    print("\n" + "=" * 80)
+    print("CUSTOM LOGO SETUP")
+    print("=" * 80)
+
+    # Source logo path (from dashboard_scripts)
+    source_logo = "/app/docker/dashboard_scripts/unicef.png"
+    # Target logo path (static assets)
+    target_logo = "/app/superset/static/assets/images/unicef.png"
+
+    if not os.path.exists(source_logo):
+        print(f"\n  ⚠️  Warning: Logo file not found at {source_logo}")
+        print("  Skipping logo setup...")
+        return False
+
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(target_logo), exist_ok=True)
+
+        # Copy logo file
+        shutil.copy2(source_logo, target_logo)
+        print(f"\n  ✓ Logo copied to {target_logo}")
+
+        # Set proper permissions
+        os.chmod(target_logo, 0o644)
+        print(f"  ✓ Logo permissions set")
+
+        return True
+    except Exception as e:
+        print(f"\n  ✗ Failed to copy logo: {e}")
+        return False
+
+
 def main():
     """Main setup orchestration"""
     print("=" * 80)
@@ -339,6 +375,7 @@ def main():
     print("  1. (Optional) Cleanup existing data")
     print("  2. Configure MySQL database connection")
     print("  3. Setup 'Enim Users' role for read-only access")
+    print("  4. Setup custom logo")
 
     with app.app_context():
         # Step 1: Optional cleanup
@@ -350,12 +387,17 @@ def main():
         # Step 3: Setup user role
         setup_enim_users_role(database_id)
 
+        # Step 4: Setup custom logo
+        logo_success = setup_custom_logo()
+
         # Final summary
         print("\n" + "=" * 80)
         print("SETUP COMPLETE!")
         print("=" * 80)
         print(f"\n✓ Database configured (ID: {database_id})")
         print(f"✓ 'Enim Users' role configured")
+        if logo_success:
+            print(f"✓ Custom logo configured")
         print()
 
 
