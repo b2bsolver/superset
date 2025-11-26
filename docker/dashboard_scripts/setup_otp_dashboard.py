@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-IYCF Monthly Reports Dashboard Setup
+OTP Reports Dashboard Setup
 Creates dataset and dashboard with all charts from scratch
-Run: docker compose exec superset python /app/docker/dashboard_scripts/setup_iycf_dashboard.py
+Run: docker compose exec superset python /app/docker/dashboard_scripts/setup_otp_dashboard.py
 """
 import sys
 import json
@@ -12,9 +12,9 @@ from superset.app import create_app
 app = create_app()
 
 # Configuration
-TABLE_NAME = 'iycf_monthly_reports'
-DASHBOARD_TITLE = 'IYCF Monthly Dashboard'
-DASHBOARD_SLUG = 'iycf-monthly-dashboard'
+TABLE_NAME = 'otp_reports'
+DASHBOARD_TITLE = 'OTP Dashboard'
+DASHBOARD_SLUG = 'otp-dashboard'
 
 
 def select_database(db):
@@ -59,7 +59,7 @@ with app.app_context():
     from superset.models.core import Database
 
     print("=" * 80)
-    print(f"IYCF MONTHLY REPORTS DASHBOARD SETUP")
+    print(f"OTP REPORTS DASHBOARD SETUP")
     print("=" * 80)
 
     # Step 1: Get Database
@@ -73,36 +73,16 @@ with app.app_context():
         table_name=TABLE_NAME
     ).first()
 
-    # SQL query to enrich IYCF data with INF location + partner metadata
+    # SQL query to join with infs table for latitude/longitude
+    # Note: otp_reports already has program_partner, implementing_partner, camp_site
     dataset_sql = """
         SELECT
-            iycf.*,
+            otp.*,
             infs.latitude,
             infs.longitude,
-            infs.title as inf_title,
-            infs.facility_code,
-            camps.title as camp_site,
-            program_partners.program_partner,
-            implementing_partners.implementing_partner
-        FROM iycf_monthly_reports as iycf
-        LEFT JOIN infs ON iycf.inf_id = infs.id
-        LEFT JOIN camps ON infs.camp_id = camps.id
-        LEFT JOIN (
-            SELECT
-                inf_pps.inf_id,
-                GROUP_CONCAT(DISTINCT pps.title ORDER BY pps.title SEPARATOR ', ') AS program_partner
-            FROM inf_pps
-            JOIN pps ON inf_pps.pp_id = pps.id
-            GROUP BY inf_pps.inf_id
-        ) AS program_partners ON iycf.inf_id = program_partners.inf_id
-        LEFT JOIN (
-            SELECT
-                inf_ips.inf_id,
-                GROUP_CONCAT(DISTINCT ips.title ORDER BY ips.title SEPARATOR ', ') AS implementing_partner
-            FROM inf_ips
-            JOIN ips ON inf_ips.ip_id = ips.id
-            GROUP BY inf_ips.inf_id
-        ) AS implementing_partners ON iycf.inf_id = implementing_partners.inf_id
+            infs.title as inf_title
+        FROM otp_reports as otp
+        LEFT JOIN infs ON otp.inf_id = infs.id
     """
 
     if dataset:
@@ -155,9 +135,9 @@ with app.app_context():
 
     # ========== Big Number Cards ==========
 
-    # Big Number 1: Total Staff Trained
+    # Big Number 1: New Enrolment
     charts.append(Slice(
-        slice_name='Total Staff Trained',
+        slice_name='New Enrolment',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -166,8 +146,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(staff_trained_todate)',
-                'label': 'Staff Trained',
+                'sqlExpression': 'SUM(enrolment_only_muac+enrolment_only_wfh+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                'label': 'Enrolment',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -177,15 +157,15 @@ with app.app_context():
                 'operator': 'TEMPORAL_RANGE',
                 'subject': 'created_at'
             }],
-            'header_font_size': 0.3,
+            'header_font_size': 0.4,
             'subheader_font_size': 0.15,
-            'y_axis_format': ',.0f'
+            'y_axis_format': ',d'
         })
     ))
 
-    # Big Number 2: Total Counselors Trained
+    # Big Number 2: Transfer In
     charts.append(Slice(
-        slice_name='Total Counselors Trained',
+        slice_name='Transfer In',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -194,8 +174,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(counselors_trained_todate)',
-                'label': 'Counselors Trained',
+                'sqlExpression': 'SUM(transfer_in_from_sc+transfer_from_tsfp+transfer_other_otp)',
+                'label': 'Transfer In',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -205,15 +185,15 @@ with app.app_context():
                 'operator': 'TEMPORAL_RANGE',
                 'subject': 'created_at'
             }],
-            'header_font_size': 0.3,
+            'header_font_size': 0.4,
             'subheader_font_size': 0.15,
-            'y_axis_format': ',.0f'
+            'y_axis_format': ',d'
         })
     ))
 
-    # Big Number 3: Total Volunteers Trained
+    # Big Number 3: Discharge
     charts.append(Slice(
-        slice_name='Total Volunteers Trained',
+        slice_name='Discharge',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -222,8 +202,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(volunteers_trained_todate)',
-                'label': 'Volunteers Trained',
+                'sqlExpression': 'SUM(recovered+death+defaulted+non_recovered)',
+                'label': 'Discharge',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -233,15 +213,15 @@ with app.app_context():
                 'operator': 'TEMPORAL_RANGE',
                 'subject': 'created_at'
             }],
-            'header_font_size': 0.3,
+            'header_font_size': 0.4,
             'subheader_font_size': 0.15,
-            'y_axis_format': ',.0f'
+            'y_axis_format': ',d'
         })
     ))
 
-    # Big Number 4: Total IYCF Services
+    # Big Number 4: Transfer Out
     charts.append(Slice(
-        slice_name='Total IYCF Services',
+        slice_name='Transfer Out',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -250,8 +230,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(received_iycf_services)',
-                'label': 'IYCF Services',
+                'sqlExpression': 'SUM(transfer_to_other_otp+transfer_inpatient+medical_transfer)',
+                'label': 'Transfer Out',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -261,15 +241,15 @@ with app.app_context():
                 'operator': 'TEMPORAL_RANGE',
                 'subject': 'created_at'
             }],
-            'header_font_size': 0.3,
+            'header_font_size': 0.4,
             'subheader_font_size': 0.15,
-            'y_axis_format': ',.0f'
+            'y_axis_format': ',d'
         })
     ))
 
-    # Big Number 5: Issues Resolved (6-23m)
+    # Big Number 5: Recovery Rate
     charts.append(Slice(
-        slice_name='Issues Resolved (6-23m)',
+        slice_name='Recovery Rate',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -278,8 +258,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(issues_resolved_6_23m)',
-                'label': 'Issues Resolved',
+                'sqlExpression': 'SUM(recovered)/SUM(recovered+death+defaulted+non_recovered)',
+                'label': 'Recovery Rate',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -289,17 +269,17 @@ with app.app_context():
                 'operator': 'TEMPORAL_RANGE',
                 'subject': 'created_at'
             }],
-            'header_font_size': 0.3,
+            'header_font_size': 0.4,
             'subheader_font_size': 0.15,
-            'y_axis_format': ',.0f'
+            'y_axis_format': ',.1%'
         })
     ))
 
     # ========== Line Charts ==========
 
-    # Line Chart: Training Trends
+    # Line Chart: Monthly Enrollment
     charts.append(Slice(
-        slice_name='Monthly Training Trends',
+        slice_name='Monthly Enrollment',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_line',
@@ -309,25 +289,13 @@ with app.app_context():
             'x_axis': {
                 'expressionType': 'SQL',
                 'label': 'Month Year',
-                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
+                'sqlExpression': 'CONCAT(year, \'-\', month)'
             },
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(staff_trained_period)',
-                    'label': 'Staff (Period)',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(counselors_trained_period)',
-                    'label': 'Counselors (Period)',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(volunteers_trained_period)',
-                    'label': 'Volunteers (Period)',
+                    'sqlExpression': 'SUM(enrolment_only_wfh+enrolment_only_muac+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                    'label': 'Enrolment',
                     'hasCustomLabel': True
                 }
             ],
@@ -344,8 +312,93 @@ with app.app_context():
             'legendType': 'scroll',
             'legendOrientation': 'top',
             'rich_tooltip': True,
-            'y_axis_format': ',.0f',
+            'y_axis_format': ',.1f',
             'markerSize': 6,
+            'truncateXAxis': True,
+            'x_axis_time_format': 'smart_date'
+        })
+    ))
+
+    # Line Chart: Recovery Rate Trend
+    charts.append(Slice(
+        slice_name='Recovery Rate Trend',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_line',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_line',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \'-\', month)'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered) * 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0)',
+                    'label': 'Recovery Rate %',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': ',.1f',
+            'markerSize': 6,
+            'truncateXAxis': True,
+            'x_axis_time_format': 'smart_date'
+        })
+    ))
+
+    # Smooth Line Chart: Beneficiary In Care
+    charts.append(Slice(
+        slice_name='Beneficiary In Care',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_smooth',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_smooth',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \'-\', month)'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SIMPLE',
+                    'column': {'column_name': 'total_in_care_end_month'},
+                    'aggregate': 'SUM',
+                    'label': 'In Care',
+                    'hasCustomLabel': True
+                }
+            ],
+            'groupby': ['implementing_partner'],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 50000,
+            'color_scheme': 'supersetAndPresetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'bottom',
+            'rich_tooltip': True,
+            'y_axis_format': '~g',
             'truncateXAxis': True,
             'x_axis_time_format': 'smart_date'
         })
@@ -353,9 +406,69 @@ with app.app_context():
 
     # ========== Bar Charts ==========
 
-    # Bar Chart: Educational Sessions
+    # Bar Chart: Performance Analysis (Stacked)
     charts.append(Slice(
-        slice_name='Educational Sessions',
+        slice_name='Performance Analysis',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_bar',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_bar',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \' -\', month)'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered)* 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0)',
+                    'label': 'Recovered',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(death)* 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0)',
+                    'label': 'Death',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(defaulted) * 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0)',
+                    'label': 'Defaulted',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(non_recovered) * 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0)',
+                    'label': 'Non Recovered',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 5000,
+            'color_scheme': 'supersetAndPresetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'bottom',
+            'rich_tooltip': True,
+            'y_axis_format': ',.1f',
+            'stack': 'Stack',
+            'truncateXAxis': True,
+            'y_axis_bounds': [0, 100]
+        })
+    ))
+
+    # Bar Chart: Care Given
+    charts.append(Slice(
+        slice_name='Care Given',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -369,18 +482,14 @@ with app.app_context():
             },
             'metrics': [
                 {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(edu_session_1st_visit)',
-                    'label': '1st Visit',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(edu_session_gt1_visit)',
-                    'label': '>1 Visit',
+                    'expressionType': 'SIMPLE',
+                    'column': {'column_name': 'total_in_care_end_month'},
+                    'aggregate': 'SUM',
+                    'label': 'Care Given',
                     'hasCustomLabel': True
                 }
             ],
+            'groupby': ['age_group'],
             'adhoc_filters': [{
                 'clause': 'WHERE',
                 'comparator': 'No filter',
@@ -399,9 +508,9 @@ with app.app_context():
         })
     ))
 
-    # Bar Chart: Pregnant Women Counseling
+    # Bar Chart: OTP Caseload Distribution by Location
     charts.append(Slice(
-        slice_name='Pregnant Women Counseled',
+        slice_name='OTP Caseload Distribution by Location',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -415,18 +524,14 @@ with app.app_context():
             },
             'metrics': [
                 {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(pw_counseled_1st_visit)',
-                    'label': '1st Visit',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(pw_counseled_gt1_visit)',
-                    'label': '>1 Visit',
+                    'expressionType': 'SIMPLE',
+                    'column': {'column_name': 'total_in_care_end_month'},
+                    'aggregate': 'SUM',
+                    'label': 'Caseload',
                     'hasCustomLabel': True
                 }
             ],
+            'groupby': ['program_partner'],
             'adhoc_filters': [{
                 'clause': 'WHERE',
                 'comparator': 'No filter',
@@ -441,228 +546,6 @@ with app.app_context():
             'legendOrientation': 'top',
             'rich_tooltip': True,
             'y_axis_format': ',.0f',
-            'truncateXAxis': True
-        })
-    ))
-
-    # Bar Chart: Caregivers Counseling by Age Group
-    charts.append(Slice(
-        slice_name='Caregivers Counseled by Age Group',
-        datasource_type='table',
-        datasource_id=dataset.id,
-        viz_type='echarts_timeseries_bar',
-        params=json.dumps({
-            'datasource': f'{dataset.id}__table',
-            'viz_type': 'echarts_timeseries_bar',
-            'x_axis': {
-                'expressionType': 'SQL',
-                'label': 'Month Year',
-                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
-            },
-            'metrics': [
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_0_5_counseled_1st_visit + cg_0_5_counseled_gt1_visit)',
-                    'label': 'CG 0-5 months',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_6_23_counseled_1st_visit + cg_6_23_counseled_gt1_visit)',
-                    'label': 'CG 6-23 months',
-                    'hasCustomLabel': True
-                }
-            ],
-            'adhoc_filters': [{
-                'clause': 'WHERE',
-                'comparator': 'No filter',
-                'expressionType': 'SIMPLE',
-                'operator': 'TEMPORAL_RANGE',
-                'subject': 'created_at'
-            }],
-            'row_limit': 10000,
-            'color_scheme': 'supersetColors',
-            'show_legend': True,
-            'legendType': 'scroll',
-            'legendOrientation': 'top',
-            'rich_tooltip': True,
-            'y_axis_format': ',.0f',
-            'truncateXAxis': True
-        })
-    ))
-
-    # Bar Chart: Caregivers 0-5 Counseling Detail
-    charts.append(Slice(
-        slice_name='Caregivers 0-5 Months Detail',
-        datasource_type='table',
-        datasource_id=dataset.id,
-        viz_type='echarts_timeseries_bar',
-        params=json.dumps({
-            'datasource': f'{dataset.id}__table',
-            'viz_type': 'echarts_timeseries_bar',
-            'x_axis': {
-                'expressionType': 'SQL',
-                'label': 'Month Year',
-                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
-            },
-            'metrics': [
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_0_5_counseled_1st_visit)',
-                    'label': '1st Visit',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_0_5_counseled_gt1_visit)',
-                    'label': '>1 Visit',
-                    'hasCustomLabel': True
-                }
-            ],
-            'adhoc_filters': [{
-                'clause': 'WHERE',
-                'comparator': 'No filter',
-                'expressionType': 'SIMPLE',
-                'operator': 'TEMPORAL_RANGE',
-                'subject': 'created_at'
-            }],
-            'row_limit': 10000,
-            'color_scheme': 'supersetColors',
-            'show_legend': True,
-            'legendType': 'scroll',
-            'legendOrientation': 'top',
-            'rich_tooltip': True,
-            'y_axis_format': ',.0f',
-            'truncateXAxis': True
-        })
-    ))
-
-    # Bar Chart: Caregivers 6-23 Counseling Detail
-    charts.append(Slice(
-        slice_name='Caregivers 6-23 Months Detail',
-        datasource_type='table',
-        datasource_id=dataset.id,
-        viz_type='echarts_timeseries_bar',
-        params=json.dumps({
-            'datasource': f'{dataset.id}__table',
-            'viz_type': 'echarts_timeseries_bar',
-            'x_axis': {
-                'expressionType': 'SQL',
-                'label': 'Month Year',
-                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
-            },
-            'metrics': [
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_6_23_counseled_1st_visit)',
-                    'label': '1st Visit',
-                    'hasCustomLabel': True
-                },
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_6_23_counseled_gt1_visit)',
-                    'label': '>1 Visit',
-                    'hasCustomLabel': True
-                }
-            ],
-            'adhoc_filters': [{
-                'clause': 'WHERE',
-                'comparator': 'No filter',
-                'expressionType': 'SIMPLE',
-                'operator': 'TEMPORAL_RANGE',
-                'subject': 'created_at'
-            }],
-            'row_limit': 10000,
-            'color_scheme': 'supersetColors',
-            'show_legend': True,
-            'legendType': 'scroll',
-            'legendOrientation': 'top',
-            'rich_tooltip': True,
-            'y_axis_format': ',.0f',
-            'truncateXAxis': True
-        })
-    ))
-
-    # ========== Area Charts ==========
-
-    # Area Chart: IYCF Services Trend
-    charts.append(Slice(
-        slice_name='IYCF Services Trend',
-        datasource_type='table',
-        datasource_id=dataset.id,
-        viz_type='echarts_area',
-        params=json.dumps({
-            'datasource': f'{dataset.id}__table',
-            'viz_type': 'echarts_area',
-            'x_axis': {
-                'expressionType': 'SQL',
-                'label': 'Month Year',
-                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
-            },
-            'metrics': [
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(received_iycf_services)',
-                    'label': 'Services Received',
-                    'hasCustomLabel': True
-                }
-            ],
-            'adhoc_filters': [{
-                'clause': 'WHERE',
-                'comparator': 'No filter',
-                'expressionType': 'SIMPLE',
-                'operator': 'TEMPORAL_RANGE',
-                'subject': 'created_at'
-            }],
-            'row_limit': 10000,
-            'color_scheme': 'supersetColors',
-            'show_legend': True,
-            'legendType': 'scroll',
-            'legendOrientation': 'top',
-            'rich_tooltip': True,
-            'y_axis_format': ',.0f',
-            'opacity': 0.5,
-            'truncateXAxis': True
-        })
-    ))
-
-    # Area Chart: Issues Resolved Trend
-    charts.append(Slice(
-        slice_name='Issues Resolved Trend',
-        datasource_type='table',
-        datasource_id=dataset.id,
-        viz_type='echarts_area',
-        params=json.dumps({
-            'datasource': f'{dataset.id}__table',
-            'viz_type': 'echarts_area',
-            'x_axis': {
-                'expressionType': 'SQL',
-                'label': 'Month Year',
-                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
-            },
-            'metrics': [
-                {
-                    'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(issues_resolved_6_23m)',
-                    'label': 'Issues Resolved',
-                    'hasCustomLabel': True
-                }
-            ],
-            'adhoc_filters': [{
-                'clause': 'WHERE',
-                'comparator': 'No filter',
-                'expressionType': 'SIMPLE',
-                'operator': 'TEMPORAL_RANGE',
-                'subject': 'created_at'
-            }],
-            'row_limit': 10000,
-            'color_scheme': 'supersetColors',
-            'show_legend': True,
-            'legendType': 'scroll',
-            'legendOrientation': 'top',
-            'rich_tooltip': True,
-            'y_axis_format': ',.0f',
-            'opacity': 0.5,
             'truncateXAxis': True
         })
     ))
@@ -678,7 +561,7 @@ with app.app_context():
     # Get all chart IDs
     chart_ids = [chart.id for chart in charts]
 
-    # Configure native filters
+    # Configure native filters with NULL exclusion
     native_filters = [
         {
             'id': 'NATIVE_FILTER-year',
@@ -717,6 +600,54 @@ with app.app_context():
             'filterType': 'filter_select',
             'targets': [{
                 'column': {'name': 'month'},
+                'datasetId': dataset.id,
+                'datasetUuid': str(dataset.uuid)
+            }],
+            'defaultDataMask': {'extraFormData': {}, 'filterState': {}, 'ownState': {}},
+            'cascadeParentIds': [],
+            'scope': {'rootPath': ['ROOT_ID'], 'excluded': []},
+            'type': 'NATIVE_FILTER',
+            'description': '',
+            'chartsInScope': chart_ids,
+            'tabsInScope': []
+        },
+        {
+            'id': 'NATIVE_FILTER-gender',
+            'controlValues': {
+                'enableEmptyFilter': False,
+                'defaultToFirstItem': False,
+                'multiSelect': True,
+                'searchAllOptions': False,
+                'inverseSelection': False
+            },
+            'name': 'Gender',
+            'filterType': 'filter_select',
+            'targets': [{
+                'column': {'name': 'gender'},
+                'datasetId': dataset.id,
+                'datasetUuid': str(dataset.uuid)
+            }],
+            'defaultDataMask': {'extraFormData': {}, 'filterState': {}, 'ownState': {}},
+            'cascadeParentIds': [],
+            'scope': {'rootPath': ['ROOT_ID'], 'excluded': []},
+            'type': 'NATIVE_FILTER',
+            'description': '',
+            'chartsInScope': chart_ids,
+            'tabsInScope': []
+        },
+        {
+            'id': 'NATIVE_FILTER-age-group',
+            'controlValues': {
+                'enableEmptyFilter': False,
+                'defaultToFirstItem': False,
+                'multiSelect': True,
+                'searchAllOptions': False,
+                'inverseSelection': False
+            },
+            'name': 'Age Group',
+            'filterType': 'filter_select',
+            'targets': [{
+                'column': {'name': 'age_group'},
                 'datasetId': dataset.id,
                 'datasetUuid': str(dataset.uuid)
             }],
@@ -775,34 +706,10 @@ with app.app_context():
             'description': '',
             'chartsInScope': chart_ids,
             'tabsInScope': []
-        },
-        {
-            'id': 'NATIVE_FILTER-camp-site',
-            'controlValues': {
-                'enableEmptyFilter': False,
-                'defaultToFirstItem': False,
-                'multiSelect': True,
-                'searchAllOptions': False,
-                'inverseSelection': False
-            },
-            'name': 'Camp Site',
-            'filterType': 'filter_select',
-            'targets': [{
-                'column': {'name': 'camp_site'},
-                'datasetId': dataset.id,
-                'datasetUuid': str(dataset.uuid)
-            }],
-            'defaultDataMask': {'extraFormData': {}, 'filterState': {}, 'ownState': {}},
-            'cascadeParentIds': [],
-            'scope': {'rootPath': ['ROOT_ID'], 'excluded': []},
-            'type': 'NATIVE_FILTER',
-            'description': '',
-            'chartsInScope': chart_ids,
-            'tabsInScope': []
         }
     ]
 
-    # Update dashboard metadata with native filters
+    # Update dashboard metadata with native filters and cross-filtering
     dashboard.json_metadata = json.dumps({
         'color_scheme': '',
         'refresh_frequency': 0,
@@ -821,7 +728,7 @@ with app.app_context():
         print(f"  {i}. {chart.slice_name} ({chart.viz_type})")
 
     print(f"✓ Configured {len(native_filters)} native filters:")
-    print(f"  - Year, Month, Program Partner, Implementing Partner, Camp Site")
+    print(f"  - Year, Month, Gender, Age Group, Program Partner, Implementing Partner")
 
     print("\n" + "=" * 80)
     print("SETUP COMPLETE!")

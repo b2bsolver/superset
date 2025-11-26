@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-IYCF Monthly Reports Dashboard Setup
+GMP Report Archives Dashboard Setup
 Creates dataset and dashboard with all charts from scratch
-Run: docker compose exec superset python /app/docker/dashboard_scripts/setup_iycf_dashboard.py
+Run: docker compose exec superset python /app/docker/dashboard_scripts/setup_gmp_dashboard.py
 """
 import sys
 import json
@@ -12,9 +12,9 @@ from superset.app import create_app
 app = create_app()
 
 # Configuration
-TABLE_NAME = 'iycf_monthly_reports'
-DASHBOARD_TITLE = 'IYCF Monthly Dashboard'
-DASHBOARD_SLUG = 'iycf-monthly-dashboard'
+TABLE_NAME = 'gmp_report_archives'
+DASHBOARD_TITLE = 'GMP Report Archives Dashboard'
+DASHBOARD_SLUG = 'gmp-report-archives-dashboard'
 
 
 def select_database(db):
@@ -59,7 +59,7 @@ with app.app_context():
     from superset.models.core import Database
 
     print("=" * 80)
-    print(f"IYCF MONTHLY REPORTS DASHBOARD SETUP")
+    print(f"GMP REPORT ARCHIVES DASHBOARD SETUP")
     print("=" * 80)
 
     # Step 1: Get Database
@@ -73,10 +73,10 @@ with app.app_context():
         table_name=TABLE_NAME
     ).first()
 
-    # SQL query to enrich IYCF data with INF location + partner metadata
+    # SQL query to enrich GMP data with INF location + partner metadata
     dataset_sql = """
         SELECT
-            iycf.*,
+            gmp.*,
             infs.latitude,
             infs.longitude,
             infs.title as inf_title,
@@ -84,8 +84,8 @@ with app.app_context():
             camps.title as camp_site,
             program_partners.program_partner,
             implementing_partners.implementing_partner
-        FROM iycf_monthly_reports as iycf
-        LEFT JOIN infs ON iycf.inf_id = infs.id
+        FROM gmp_report_archives as gmp
+        LEFT JOIN infs ON gmp.inf_id = infs.id
         LEFT JOIN camps ON infs.camp_id = camps.id
         LEFT JOIN (
             SELECT
@@ -94,7 +94,7 @@ with app.app_context():
             FROM inf_pps
             JOIN pps ON inf_pps.pp_id = pps.id
             GROUP BY inf_pps.inf_id
-        ) AS program_partners ON iycf.inf_id = program_partners.inf_id
+        ) AS program_partners ON gmp.inf_id = program_partners.inf_id
         LEFT JOIN (
             SELECT
                 inf_ips.inf_id,
@@ -102,7 +102,7 @@ with app.app_context():
             FROM inf_ips
             JOIN ips ON inf_ips.ip_id = ips.id
             GROUP BY inf_ips.inf_id
-        ) AS implementing_partners ON iycf.inf_id = implementing_partners.inf_id
+        ) AS implementing_partners ON gmp.inf_id = implementing_partners.inf_id
     """
 
     if dataset:
@@ -155,9 +155,9 @@ with app.app_context():
 
     # ========== Big Number Cards ==========
 
-    # Big Number 1: Total Staff Trained
+    # Big Number 1: Total Target Children
     charts.append(Slice(
-        slice_name='Total Staff Trained',
+        slice_name='Total Target Children',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -166,8 +166,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(staff_trained_todate)',
-                'label': 'Staff Trained',
+                'sqlExpression': 'SUM(target_total_t)',
+                'label': 'Target Total',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -183,9 +183,9 @@ with app.app_context():
         })
     ))
 
-    # Big Number 2: Total Counselors Trained
+    # Big Number 2: Total Screened
     charts.append(Slice(
-        slice_name='Total Counselors Trained',
+        slice_name='Total Screened',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -194,8 +194,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(counselors_trained_todate)',
-                'label': 'Counselors Trained',
+                'sqlExpression': 'SUM(done_total_t)',
+                'label': 'Screened Total',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -211,9 +211,9 @@ with app.app_context():
         })
     ))
 
-    # Big Number 3: Total Volunteers Trained
+    # Big Number 3: Achievement Rate
     charts.append(Slice(
-        slice_name='Total Volunteers Trained',
+        slice_name='Achievement Rate',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -222,8 +222,36 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(volunteers_trained_todate)',
-                'label': 'Volunteers Trained',
+                'sqlExpression': 'AVG(ach_t)',
+                'label': 'Achievement %',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'header_font_size': 0.3,
+            'subheader_font_size': 0.15,
+            'y_axis_format': ',.1f'
+        })
+    ))
+
+    # Big Number 4: Total SAM Cases
+    charts.append(Slice(
+        slice_name='Total SAM Cases',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='big_number_total',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'big_number_total',
+            'metric': {
+                'expressionType': 'SQL',
+                'sqlExpression': 'SUM(sam_total_t)',
+                'label': 'SAM Total',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -239,9 +267,9 @@ with app.app_context():
         })
     ))
 
-    # Big Number 4: Total IYCF Services
+    # Big Number 5: Total MAM Cases
     charts.append(Slice(
-        slice_name='Total IYCF Services',
+        slice_name='Total MAM Cases',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -250,8 +278,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(received_iycf_services)',
-                'label': 'IYCF Services',
+                'sqlExpression': 'SUM(mam_total_t)',
+                'label': 'MAM Total',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -267,9 +295,9 @@ with app.app_context():
         })
     ))
 
-    # Big Number 5: Issues Resolved (6-23m)
+    # Big Number 6: Total OTP Referrals
     charts.append(Slice(
-        slice_name='Issues Resolved (6-23m)',
+        slice_name='Total OTP Referrals',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='big_number_total',
@@ -278,8 +306,8 @@ with app.app_context():
             'viz_type': 'big_number_total',
             'metric': {
                 'expressionType': 'SQL',
-                'sqlExpression': 'SUM(issues_resolved_6_23m)',
-                'label': 'Issues Resolved',
+                'sqlExpression': 'SUM(refer_otp_t)',
+                'label': 'OTP Referrals',
                 'hasCustomLabel': True
             },
             'adhoc_filters': [{
@@ -297,9 +325,9 @@ with app.app_context():
 
     # ========== Line Charts ==========
 
-    # Line Chart: Training Trends
+    # Line Chart: Monthly Screening Trend
     charts.append(Slice(
-        slice_name='Monthly Training Trends',
+        slice_name='Monthly Screening Trend',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_line',
@@ -314,20 +342,62 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(staff_trained_period)',
-                    'label': 'Staff (Period)',
+                    'sqlExpression': 'SUM(target_total_t)',
+                    'label': 'Target',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(counselors_trained_period)',
-                    'label': 'Counselors (Period)',
+                    'sqlExpression': 'SUM(done_total_t)',
+                    'label': 'Screened',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': ',.0f',
+            'markerSize': 6,
+            'truncateXAxis': True,
+            'x_axis_time_format': 'smart_date'
+        })
+    ))
+
+    # Line Chart: Malnutrition Trend
+    charts.append(Slice(
+        slice_name='Malnutrition Cases Trend',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_line',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_line',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(sam_total_t)',
+                    'label': 'SAM',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(volunteers_trained_period)',
-                    'label': 'Volunteers (Period)',
+                    'sqlExpression': 'SUM(mam_total_t)',
+                    'label': 'MAM',
                     'hasCustomLabel': True
                 }
             ],
@@ -353,9 +423,9 @@ with app.app_context():
 
     # ========== Bar Charts ==========
 
-    # Bar Chart: Educational Sessions
+    # Bar Chart: Target vs Achievement by Age Group
     charts.append(Slice(
-        slice_name='Educational Sessions',
+        slice_name='Screening by Age Group',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -370,14 +440,20 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(edu_session_1st_visit)',
-                    'label': '1st Visit',
+                    'sqlExpression': 'SUM(done_0_5_t)',
+                    'label': '0-5 months',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(edu_session_gt1_visit)',
-                    'label': '>1 Visit',
+                    'sqlExpression': 'SUM(done_6_23_t)',
+                    'label': '6-23 months',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(done_24_59_t)',
+                    'label': '24-59 months',
                     'hasCustomLabel': True
                 }
             ],
@@ -399,9 +475,9 @@ with app.app_context():
         })
     ))
 
-    # Bar Chart: Pregnant Women Counseling
+    # Bar Chart: Gender Distribution
     charts.append(Slice(
-        slice_name='Pregnant Women Counseled',
+        slice_name='Screening by Gender',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -416,14 +492,14 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(pw_counseled_1st_visit)',
-                    'label': '1st Visit',
+                    'sqlExpression': 'SUM(done_total_m)',
+                    'label': 'Male',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(pw_counseled_gt1_visit)',
-                    'label': '>1 Visit',
+                    'sqlExpression': 'SUM(done_total_f)',
+                    'label': 'Female',
                     'hasCustomLabel': True
                 }
             ],
@@ -445,9 +521,9 @@ with app.app_context():
         })
     ))
 
-    # Bar Chart: Caregivers Counseling by Age Group
+    # Bar Chart: Growth Status
     charts.append(Slice(
-        slice_name='Caregivers Counseled by Age Group',
+        slice_name='Growth Status Distribution',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -462,14 +538,20 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_0_5_counseled_1st_visit + cg_0_5_counseled_gt1_visit)',
-                    'label': 'CG 0-5 months',
+                    'sqlExpression': 'SUM(growth_positive_t)',
+                    'label': 'Positive',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_6_23_counseled_1st_visit + cg_6_23_counseled_gt1_visit)',
-                    'label': 'CG 6-23 months',
+                    'sqlExpression': 'SUM(growth_static_t)',
+                    'label': 'Static',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(growth_faltered_t)',
+                    'label': 'Faltered',
                     'hasCustomLabel': True
                 }
             ],
@@ -491,9 +573,9 @@ with app.app_context():
         })
     ))
 
-    # Bar Chart: Caregivers 0-5 Counseling Detail
+    # Bar Chart: SAM Detection Methods
     charts.append(Slice(
-        slice_name='Caregivers 0-5 Months Detail',
+        slice_name='SAM Detection Methods',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -508,14 +590,20 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_0_5_counseled_1st_visit)',
-                    'label': '1st Visit',
+                    'sqlExpression': 'SUM(sam_muac_t)',
+                    'label': 'MUAC',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_0_5_counseled_gt1_visit)',
-                    'label': '>1 Visit',
+                    'sqlExpression': 'SUM(sam_whz_t)',
+                    'label': 'WHZ',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(sam_both_t)',
+                    'label': 'Both',
                     'hasCustomLabel': True
                 }
             ],
@@ -537,9 +625,9 @@ with app.app_context():
         })
     ))
 
-    # Bar Chart: Caregivers 6-23 Counseling Detail
+    # Bar Chart: MAM by Method
     charts.append(Slice(
-        slice_name='Caregivers 6-23 Months Detail',
+        slice_name='MAM Detection Methods',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_timeseries_bar',
@@ -554,14 +642,106 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_6_23_counseled_1st_visit)',
-                    'label': '1st Visit',
+                    'sqlExpression': 'SUM(mam_muac_t)',
+                    'label': 'MUAC',
                     'hasCustomLabel': True
                 },
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(cg_6_23_counseled_gt1_visit)',
-                    'label': '>1 Visit',
+                    'sqlExpression': 'SUM(mam_whz_t)',
+                    'label': 'WHZ',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': ',.0f',
+            'truncateXAxis': True
+        })
+    ))
+
+    # Bar Chart: Referrals
+    charts.append(Slice(
+        slice_name='Referrals by Program',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_bar',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_bar',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(refer_otp_t)',
+                    'label': 'OTP',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(refer_tsfp_t)',
+                    'label': 'TSFP',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': ',.0f',
+            'truncateXAxis': True
+        })
+    ))
+
+    # Bar Chart: Other Nutrition Indicators
+    charts.append(Slice(
+        slice_name='Other Nutrition Indicators',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_bar',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_bar',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(stunting_t)',
+                    'label': 'Stunting',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(underweight_t)',
+                    'label': 'Underweight',
                     'hasCustomLabel': True
                 }
             ],
@@ -585,9 +765,9 @@ with app.app_context():
 
     # ========== Area Charts ==========
 
-    # Area Chart: IYCF Services Trend
+    # Area Chart: Cumulative Screening
     charts.append(Slice(
-        slice_name='IYCF Services Trend',
+        slice_name='Cumulative Screening Trend',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_area',
@@ -602,8 +782,8 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(received_iycf_services)',
-                    'label': 'Services Received',
+                    'sqlExpression': 'SUM(done_total_t)',
+                    'label': 'Total Screened',
                     'hasCustomLabel': True
                 }
             ],
@@ -626,9 +806,9 @@ with app.app_context():
         })
     ))
 
-    # Area Chart: Issues Resolved Trend
+    # Area Chart: Growth Faltering Trend
     charts.append(Slice(
-        slice_name='Issues Resolved Trend',
+        slice_name='Growth Faltering Trend',
         datasource_type='table',
         datasource_id=dataset.id,
         viz_type='echarts_area',
@@ -643,8 +823,8 @@ with app.app_context():
             'metrics': [
                 {
                     'expressionType': 'SQL',
-                    'sqlExpression': 'SUM(issues_resolved_6_23m)',
-                    'label': 'Issues Resolved',
+                    'sqlExpression': 'SUM(growth_faltered_t)',
+                    'label': 'Growth Faltered',
                     'hasCustomLabel': True
                 }
             ],
