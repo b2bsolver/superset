@@ -66,23 +66,26 @@ with app.app_context():
     print("\n[1/4] Selecting Database...")
     database = select_database(db)
 
-    # Step 2: Create/Update Dataset
-    print(f"\n[2/4] Setting up Dataset...")
+    # Step 2: Create/Update OTP Dataset
+    print(f"\n[2/5] Setting up OTP Dataset...")
     dataset = db.session.query(SqlaTable).filter_by(
         database_id=database.id,
         table_name=TABLE_NAME
     ).first()
 
-    # SQL query to join with infs table for latitude/longitude
+    # SQL query to join with infs table for latitude/longitude and camps for boundaries
     # Note: otp_reports already has program_partner, implementing_partner, camp_site
+    # Cast JSON to TEXT for deck.gl GeoJSON layer compatibility
     dataset_sql = """
         SELECT
             otp.*,
             infs.latitude,
             infs.longitude,
-            infs.title as inf_title
+            infs.title as inf_title,
+            CAST(camps.boundary_geom AS CHAR) as boundary_geom
         FROM otp_reports as otp
         LEFT JOIN infs ON otp.inf_id = infs.id
+        LEFT JOIN camps ON otp.camp_site = camps.title
     """
 
     if dataset:
@@ -92,7 +95,7 @@ with app.app_context():
         # Refresh metadata
         dataset.fetch_metadata()
         db.session.commit()
-        print(f"  ✓ Refreshed dataset metadata with JOIN to infs table")
+        print(f"  ✓ Refreshed dataset metadata with JOIN to infs and camps tables")
     else:
         dataset = SqlaTable(
             table_name=TABLE_NAME,
@@ -104,7 +107,7 @@ with app.app_context():
         db.session.commit()
         dataset.fetch_metadata()
         db.session.commit()
-        print(f"✓ Created dataset '{TABLE_NAME}' (ID: {dataset.id}) with JOIN to infs table")
+        print(f"✓ Created dataset '{TABLE_NAME}' (ID: {dataset.id}) with JOIN to infs and camps tables")
 
     # Step 3: Create/Update Dashboard
     print(f"\n[3/4] Setting up Dashboard...")
@@ -550,6 +553,902 @@ with app.app_context():
         })
     ))
 
+    # ========== Sunburst Chart ==========
+
+    # Sunburst: Hierarchical Beneficiary Distribution
+    charts.append(Slice(
+        slice_name='Beneficiary Hierarchy (Camp > Partner)',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='sunburst_v2',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'sunburst_v2',
+            'columns': ['camp_site', 'implementing_partner'],
+            'metric': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM',
+                'label': 'Beneficiaries',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 1000,
+            'color_scheme': 'supersetColors',
+            'linear_color_scheme': 'schemeRdYlBu'
+        })
+    ))
+
+    # ========== Treemap Chart ==========
+
+    # Treemap: Recovery Status Distribution
+    charts.append(Slice(
+        slice_name='Discharge Outcomes Treemap',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='treemap_v2',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'treemap_v2',
+            'groupby': ['camp_site'],
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered)',
+                    'label': 'Recovered',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 100,
+            'color_scheme': 'bnbColors',
+            'number_format': ',.0f'
+        })
+    ))
+
+    # ========== Mixed Time Series Chart ==========
+
+    # Mixed Chart: Enrollment vs Recovery (Bar + Line)
+    charts.append(Slice(
+        slice_name='Enrollment vs Recovery Trend',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='mixed_timeseries',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'mixed_timeseries',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month',
+                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(enrolment_only_wfh+enrolment_only_muac+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                    'label': 'New Enrollment',
+                    'hasCustomLabel': True
+                }
+            ],
+            'metrics_b': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered)',
+                    'label': 'Recovered',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendOrientation': 'top',
+            'y_axis_format': ',.0f',
+            'y_axis_format_secondary': ',.0f',
+            'truncateXAxis': True
+        })
+    ))
+
+    # ========== Gauge Chart ==========
+
+    # Gauge: Overall Recovery Rate Performance
+    charts.append(Slice(
+        slice_name='Recovery Rate Gauge',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='gauge_chart',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'gauge_chart',
+            'metric': {
+                'expressionType': 'SQL',
+                'sqlExpression': '(SUM(recovered) * 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0))',
+                'label': 'Recovery Rate %',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'min_val': 0,
+            'max_val': 100,
+            'start_angle': 225,
+            'end_angle': -45,
+            'color_scheme': 'supersetColors',
+            'font_size': 15,
+            'number_format': '.1f',
+            'value_formatter': '{value}%',
+            'show_pointer': True,
+            'animation': True,
+            'show_axis_tick': True,
+            'show_split_line': True,
+            'split_number': 10,
+            'show_progress': True,
+            'overlap': True,
+            'round_cap': True
+        })
+    ))
+
+    # ========== Radar Chart ==========
+
+    # Radar: Multi-dimensional Performance by Partner
+    charts.append(Slice(
+        slice_name='Partner Performance Radar',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='radar',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'radar',
+            'groupby': ['implementing_partner'],
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(enrolment_only_wfh+enrolment_only_muac+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                    'label': 'Enrollment',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered)',
+                    'label': 'Recovered',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(total_in_care_end_month)',
+                    'label': 'In Care',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 50,
+            'color_scheme': 'supersetColors',
+            'label_type': 'key',
+            'show_legend': True,
+            'legendOrientation': 'top'
+        })
+    ))
+
+    # ========== Stacked Area Chart (Beneficiary Flow) ==========
+
+    # Area Chart: Beneficiary Flow Over Time
+    charts.append(Slice(
+        slice_name='Beneficiary Flow Over Time',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_area',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_area',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Month Year',
+                'sqlExpression': 'CONCAT(year, \'-\', LPAD(month, 2, \'0\'))'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(enrolment_only_wfh+enrolment_only_muac+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                    'label': 'Enrollment',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(transfer_in_from_sc+transfer_from_tsfp+transfer_other_otp)',
+                    'label': 'Transfer In',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(total_in_care_end_month)',
+                    'label': 'In Care',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered)',
+                    'label': 'Recovered',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': ',.0f',
+            'opacity': 0.7,
+            'stack': 'Stream',
+            'truncateXAxis': True
+        })
+    ))
+
+    # ========== Bubble Chart ==========
+
+    # Bubble: Partner Performance Matrix
+    charts.append(Slice(
+        slice_name='Partner Performance Matrix (Bubble)',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='bubble',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'bubble',
+            'series': 'implementing_partner',
+            'entity': 'camp_site',
+            'x': {
+                'expressionType': 'SQL',
+                'sqlExpression': 'SUM(enrolment_only_wfh+enrolment_only_muac+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                'label': 'Enrollment',
+                'hasCustomLabel': True
+            },
+            'y': {
+                'expressionType': 'SQL',
+                'sqlExpression': 'SUM(recovered) * 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0)',
+                'label': 'Recovery Rate %',
+                'hasCustomLabel': True
+            },
+            'size': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM',
+                'label': 'Beneficiaries in Care',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 1000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'max_bubble_size': 50,
+            'x_axis_format': ',.0f',
+            'y_axis_format': '.1f'
+        })
+    ))
+
+    # ========== Bar Chart (Journey Stages) ==========
+
+    # Bar Chart: OTP Journey Stages Summary
+    charts.append(Slice(
+        slice_name='OTP Journey Stages',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_bar',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_bar',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Stage',
+                'sqlExpression': 'camp_site'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(enrolment_only_wfh+enrolment_only_muac+enrolment_both_muac_wfh+enrolment_edema+enrolment_relapse)',
+                    'label': 'Enrollment',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(total_in_care_end_month)',
+                    'label': 'In Care',
+                    'hasCustomLabel': True
+                },
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': 'SUM(recovered)',
+                    'label': 'Recovered',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': ',.0f',
+            'truncateXAxis': True
+        })
+    ))
+
+    # ========== Bar Chart (Recovery Rate by Camp) ==========
+
+    # Bar Chart: Recovery Rate by Camp
+    charts.append(Slice(
+        slice_name='Recovery Rate by Camp',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='echarts_timeseries_bar',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'echarts_timeseries_bar',
+            'x_axis': {
+                'expressionType': 'SQL',
+                'label': 'Camp',
+                'sqlExpression': 'camp_site'
+            },
+            'metrics': [
+                {
+                    'expressionType': 'SQL',
+                    'sqlExpression': '(SUM(recovered) * 100.0 / NULLIF(SUM(recovered + death + defaulted + non_recovered), 0))',
+                    'label': 'Recovery Rate %',
+                    'hasCustomLabel': True
+                }
+            ],
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 10000,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'top',
+            'rich_tooltip': True,
+            'y_axis_format': '.1f',
+            'truncateXAxis': True,
+            'y_axis_bounds': [0, 100]
+        })
+    ))
+
+    # ========== Pie Charts ==========
+
+    # Pie Chart: Beneficiary Distribution by Camp
+    charts.append(Slice(
+        slice_name='Beneficiary Distribution by Camp',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='pie',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'pie',
+            'groupby': ['camp_site'],
+            'metric': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM',
+                'label': 'Beneficiaries in Care',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 100,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'right',
+            'label_type': 'key_value',
+            'number_format': ',.0f',
+            'show_labels_threshold': 5,
+            'donut': False,
+            'innerRadius': 30,
+            'outerRadius': 70
+        })
+    ))
+
+    # Pie Chart: Beneficiary Distribution by Partner
+    charts.append(Slice(
+        slice_name='Beneficiary Distribution by Partner',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='pie',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'pie',
+            'groupby': ['implementing_partner'],
+            'metric': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM',
+                'label': 'Beneficiaries in Care',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [{
+                'clause': 'WHERE',
+                'comparator': 'No filter',
+                'expressionType': 'SIMPLE',
+                'operator': 'TEMPORAL_RANGE',
+                'subject': 'created_at'
+            }],
+            'row_limit': 100,
+            'color_scheme': 'supersetColors',
+            'show_legend': True,
+            'legendType': 'scroll',
+            'legendOrientation': 'right',
+            'label_type': 'key_value',
+            'number_format': ',.0f',
+            'show_labels_threshold': 5,
+            'donut': False,
+            'innerRadius': 30,
+            'outerRadius': 70
+        })
+    ))
+
+    # ========== Geographic Visualizations ==========
+
+    # Map 1: Hexagon Layer - 3D Beneficiary Density (Dark Style)
+    charts.append(Slice(
+        slice_name='3D Beneficiary Density (Hexagon)',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_hex',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_hex',
+            'spatial': {
+                'type': 'latlong',
+                'latCol': 'latitude',
+                'lonCol': 'longitude'
+            },
+            'size': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM'
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 50000,
+            'mapbox_style': 'mapbox://styles/mapbox/dark-v10',
+            'viewport': {
+                'latitude': 21.4,
+                'longitude': 92.0,
+                'zoom': 11,
+                'pitch': 40,
+                'bearing': 0
+            },
+            'grid_size': 40,
+            'extruded': True,
+            'color_picker': {'r': 14, 'g': 77, 'b': 146, 'a': 1},
+            'linear_color_scheme': 'blue_white_yellow',
+            'js_columns': [],
+            'js_data_mutator': '',
+            'js_tooltip': '',
+            'js_onclick_href': ''
+        })
+    ))
+
+    # Map 2: Screengrid - High Intensity Heatmap (Streets Style)
+    charts.append(Slice(
+        slice_name='Beneficiary Intensity Heatmap',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_screengrid',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_screengrid',
+            'spatial': {
+                'type': 'latlong',
+                'latCol': 'latitude',
+                'lonCol': 'longitude'
+            },
+            'size': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM'
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 50000,
+            'mapbox_style': 'mapbox://styles/mapbox/streets-v11',
+            'viewport': {
+                'latitude': 21.4,
+                'longitude': 92.0,
+                'zoom': 11,
+                'pitch': 0,
+                'bearing': 0
+            },
+            'grid_size': 20,
+            'linear_color_scheme': 'oranges',
+            'opacity': 80
+        })
+    ))
+
+    # Map 3: Contour - Geographic Coverage Zones (Satellite Style)
+    charts.append(Slice(
+        slice_name='Coverage Zones (Contour)',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_contour',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_contour',
+            'spatial': {
+                'type': 'latlong',
+                'latCol': 'latitude',
+                'lonCol': 'longitude'
+            },
+            'size': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM'
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 50000,
+            'mapbox_style': 'mapbox://styles/mapbox/satellite-streets-v11',
+            'viewport': {
+                'latitude': 21.4,
+                'longitude': 92.0,
+                'zoom': 11,
+                'pitch': 0,
+                'bearing': 0
+            },
+            'linear_color_scheme': 'purples',
+            'contours': [
+                {'threshold': 10, 'color': [255, 255, 178], 'strokeWidth': 1},
+                {'threshold': 50, 'color': [254, 204, 92], 'strokeWidth': 1},
+                {'threshold': 100, 'color': [253, 141, 60], 'strokeWidth': 2},
+                {'threshold': 200, 'color': [227, 26, 28], 'strokeWidth': 2}
+            ],
+            'cell_size': 200,
+            'aggregation': 'SUM'
+        })
+    ))
+
+    # Map 4: Scatter with Variable Sizes - Camp Activity Bubbles (Outdoors Style)
+    charts.append(Slice(
+        slice_name='Camp Activity Bubbles',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_scatter',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_scatter',
+            'spatial': {
+                'type': 'latlong',
+                'latCol': 'latitude',
+                'lonCol': 'longitude'
+            },
+            'size': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM'
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 50000,
+            'mapbox_style': 'mapbox://styles/mapbox/outdoors-v11',
+            'viewport': {
+                'latitude': 21.4,
+                'longitude': 92.0,
+                'zoom': 11,
+                'pitch': 0,
+                'bearing': 0
+            },
+            'point_radius_fixed': {
+                'type': 'metric'
+            },
+            'point_radius_scale': 1,
+            'point_unit': 'pixels',
+            'filled': True,
+            'stroked': True,
+            'color_picker': {'r': 76, 'g': 175, 'b': 80, 'a': 0.8}
+        })
+    ))
+
+    # Map 5: Grid - Square Grid Density (Navigation Style)
+    charts.append(Slice(
+        slice_name='Grid Density Map',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_grid',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_grid',
+            'spatial': {
+                'type': 'latlong',
+                'latCol': 'latitude',
+                'lonCol': 'longitude'
+            },
+            'size': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM'
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 50000,
+            'mapbox_style': 'mapbox://styles/mapbox/navigation-day-v1',
+            'viewport': {
+                'latitude': 21.4,
+                'longitude': 92.0,
+                'zoom': 11,
+                'pitch': 45,
+                'bearing': 0
+            },
+            'grid_size': 50,
+            'extruded': True,
+            'linear_color_scheme': 'greens',
+            'opacity': 80
+        })
+    ))
+
+    # Map 6: Heatmap - Classic Density Heatmap
+    charts.append(Slice(
+        slice_name='Beneficiary Care Heatmap',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_heatmap',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_heatmap',
+            'spatial': {
+                'type': 'latlong',
+                'latCol': 'latitude',
+                'lonCol': 'longitude'
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 50000,
+            'mapbox_style': 'mapbox://styles/mapbox/light-v10',
+            'viewport': {
+                'latitude': 21.4,
+                'longitude': 92.0,
+                'zoom': 11
+            },
+            'linear_color_scheme': 'reds',
+            'intensity': 1,
+            'radius_pixels': 60,
+            'aggregation': 'SUM'
+        })
+    ))
+
+    # Map 7: Camp Boundaries (Light Theme) - Using GeoJSON
+    charts.append(Slice(
+        slice_name='Camp Boundaries Map',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_geojson',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_geojson',
+            'geojson': 'boundary_geom',
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'subject': 'boundary_geom',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 5000,
+            'mapbox_style': 'mapbox://styles/mapbox/light-v10',
+            'viewport': {
+                'longitude': 92.15,
+                'latitude': 21.22,
+                'zoom': 11.5,
+                'pitch': 0,
+                'bearing': 0
+            },
+            'fill_color_picker': {'r': 76, 'g': 175, 'b': 80, 'a': 0.4},
+            'stroke_color_picker': {'r': 255, 'g': 87, 'b': 34, 'a': 0.9},
+            'filled': True,
+            'stroked': True,
+            'extruded': False,
+            'line_width_min_pixels': 3,
+            'get_elevation': '0',
+            'elevation_scale': 1
+        })
+    ))
+
+    # Map 8: Camp Boundaries (Satellite View)
+    charts.append(Slice(
+        slice_name='Camp Boundaries - Satellite',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_geojson',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_geojson',
+            'geojson': 'boundary_geom',
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'subject': 'boundary_geom',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 5000,
+            'mapbox_style': 'mapbox://styles/mapbox/satellite-streets-v11',
+            'viewport': {
+                'longitude': 92.15,
+                'latitude': 21.2,
+                'zoom': 13,
+                'pitch': 0,
+                'bearing': 0
+            },
+            'fill_color_picker': {'r': 255, 'g': 235, 'b': 59, 'a': 0.25},
+            'stroke_color_picker': {'r': 255, 'g': 87, 'b': 34, 'a': 1},
+            'filled': True,
+            'stroked': True,
+            'extruded': False,
+            'line_width_min_pixels': 3
+        })
+    ))
+
+    # Map 9: 3D Camp Boundaries (Dark Theme)
+    charts.append(Slice(
+        slice_name='3D Camp Boundaries',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_geojson',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_geojson',
+            'geojson': 'boundary_geom',
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'subject': 'boundary_geom',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 5000,
+            'mapbox_style': 'mapbox://styles/mapbox/dark-v10',
+            'viewport': {
+                'longitude': 92.15,
+                'latitude': 21.2,
+                'zoom': 12,
+                'pitch': 60,
+                'bearing': 30
+            },
+            'fill_color_picker': {'r': 33, 'g': 150, 'b': 243, 'a': 0.6},
+            'stroke_color_picker': {'r': 0, 'g': 229, 'b': 255, 'a': 1},
+            'filled': True,
+            'stroked': True,
+            'extruded': True,
+            'point_radius_scale': 100,
+            'line_width_min_pixels': 2
+        })
+    ))
+
     # Save all charts
     for chart in charts:
         db.session.add(chart)
@@ -558,8 +1457,11 @@ with app.app_context():
     # Add charts to dashboard
     dashboard.slices.extend(charts)
 
-    # Get all chart IDs
-    chart_ids = [chart.id for chart in charts]
+    # Commit to ensure chart IDs are assigned
+    db.session.commit()
+
+    # Get all chart IDs (filter out None values)
+    chart_ids = [chart.id for chart in charts if chart.id is not None]
 
     # Configure native filters with NULL exclusion
     native_filters = [
@@ -727,8 +1629,11 @@ with app.app_context():
     for i, chart in enumerate(charts, 1):
         print(f"  {i}. {chart.slice_name} ({chart.viz_type})")
 
+    # Update filter count
+    filter_names = [f['name'] for f in native_filters]
+
     print(f"✓ Configured {len(native_filters)} native filters:")
-    print(f"  - Year, Month, Gender, Age Group, Program Partner, Implementing Partner")
+    print(f"  - {', '.join(filter_names)}")
 
     print("\n" + "=" * 80)
     print("SETUP COMPLETE!")
