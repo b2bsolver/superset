@@ -75,14 +75,18 @@ with app.app_context():
 
     # SQL query to join with infs table for latitude/longitude and camps for boundaries
     # Note: otp_reports already has program_partner, implementing_partner, camp_site
-    # Cast JSON to TEXT for deck.gl GeoJSON layer compatibility
+    # Convert boundary_geom JSON to proper GeoJSON string for deck.gl
     dataset_sql = """
         SELECT
             otp.*,
             infs.latitude,
             infs.longitude,
             infs.title as inf_title,
-            CAST(camps.boundary_geom AS CHAR) as boundary_geom
+            CASE
+                WHEN camps.boundary_geom IS NOT NULL
+                THEN JSON_UNQUOTE(JSON_EXTRACT(CONCAT('{"type":"Feature","geometry":', camps.boundary_geom, ',"properties":{}}'), '$'))
+                ELSE NULL
+            END as boundary_geom
         FROM otp_reports as otp
         LEFT JOIN infs ON otp.inf_id = infs.id
         LEFT JOIN camps ON otp.camp_site = camps.title
@@ -1324,6 +1328,7 @@ with app.app_context():
             'datasource': f'{dataset.id}__table',
             'viz_type': 'deck_geojson',
             'geojson': 'boundary_geom',
+            'groupby': ['camp_site'],
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
@@ -1344,8 +1349,8 @@ with app.app_context():
             'mapbox_style': 'mapbox://styles/mapbox/light-v10',
             'viewport': {
                 'longitude': 92.15,
-                'latitude': 21.22,
-                'zoom': 11.5,
+                'latitude': 21.2,
+                'zoom': 12,
                 'pitch': 0,
                 'bearing': 0
             },
@@ -1355,8 +1360,7 @@ with app.app_context():
             'stroked': True,
             'extruded': False,
             'line_width_min_pixels': 3,
-            'get_elevation': '0',
-            'elevation_scale': 1
+            'point_radius_scale': 1
         })
     ))
 
@@ -1370,6 +1374,7 @@ with app.app_context():
             'datasource': f'{dataset.id}__table',
             'viz_type': 'deck_geojson',
             'geojson': 'boundary_geom',
+            'groupby': ['camp_site'],
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
@@ -1400,7 +1405,8 @@ with app.app_context():
             'filled': True,
             'stroked': True,
             'extruded': False,
-            'line_width_min_pixels': 3
+            'line_width_min_pixels': 3,
+            'point_radius_scale': 1
         })
     ))
 
@@ -1414,6 +1420,7 @@ with app.app_context():
             'datasource': f'{dataset.id}__table',
             'viz_type': 'deck_geojson',
             'geojson': 'boundary_geom',
+            'groupby': ['camp_site'],
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
