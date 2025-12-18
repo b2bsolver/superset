@@ -1071,6 +1071,20 @@ with app.app_context():
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
+                    'subject': 'latitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'subject': 'longitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
                     'comparator': 'No filter',
                     'expressionType': 'SIMPLE',
                     'operator': 'TEMPORAL_RANGE',
@@ -1119,6 +1133,20 @@ with app.app_context():
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
+                    'subject': 'latitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'subject': 'longitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
                     'comparator': 'No filter',
                     'expressionType': 'SIMPLE',
                     'operator': 'TEMPORAL_RANGE',
@@ -1160,6 +1188,20 @@ with app.app_context():
                 'aggregate': 'SUM'
             },
             'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'subject': 'latitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'subject': 'longitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
                 {
                     'clause': 'WHERE',
                     'comparator': 'No filter',
@@ -1211,6 +1253,20 @@ with app.app_context():
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
+                    'subject': 'latitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'subject': 'longitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
                     'comparator': 'No filter',
                     'expressionType': 'SIMPLE',
                     'operator': 'TEMPORAL_RANGE',
@@ -1259,6 +1315,20 @@ with app.app_context():
             'adhoc_filters': [
                 {
                     'clause': 'WHERE',
+                    'subject': 'latitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'subject': 'longitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
                     'comparator': 'No filter',
                     'expressionType': 'SIMPLE',
                     'operator': 'TEMPORAL_RANGE',
@@ -1296,6 +1366,20 @@ with app.app_context():
                 'lonCol': 'longitude'
             },
             'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'subject': 'latitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'subject': 'longitude',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
                 {
                     'clause': 'WHERE',
                     'comparator': 'No filter',
@@ -1453,6 +1537,58 @@ with app.app_context():
             'extruded': True,
             'point_radius_scale': 100,
             'line_width_min_pixels': 2
+        })
+    ))
+
+    # Map 10: Choropleth - Beneficiary Count by Camp Boundary
+    charts.append(Slice(
+        slice_name='Beneficiary Choropleth (Camp Boundaries)',
+        datasource_type='table',
+        datasource_id=dataset.id,
+        viz_type='deck_geojson',
+        params=json.dumps({
+            'datasource': f'{dataset.id}__table',
+            'viz_type': 'deck_geojson',
+            'geojson': 'boundary_geom',
+            'groupby': ['camp_site'],
+            'metric': {
+                'expressionType': 'SIMPLE',
+                'column': {'column_name': 'total_in_care_end_month'},
+                'aggregate': 'SUM',
+                'label': 'Beneficiaries',
+                'hasCustomLabel': True
+            },
+            'adhoc_filters': [
+                {
+                    'clause': 'WHERE',
+                    'subject': 'boundary_geom',
+                    'operator': 'IS NOT NULL',
+                    'comparator': '',
+                    'expressionType': 'SIMPLE'
+                },
+                {
+                    'clause': 'WHERE',
+                    'comparator': 'No filter',
+                    'expressionType': 'SIMPLE',
+                    'operator': 'TEMPORAL_RANGE',
+                    'subject': 'created_at'
+                }
+            ],
+            'row_limit': 5000,
+            'mapbox_style': 'mapbox://styles/mapbox/light-v10',
+            'viewport': {
+                'longitude': 92.15,
+                'latitude': 21.2,
+                'zoom': 12,
+                'pitch': 0,
+                'bearing': 0
+            },
+            'linear_color_scheme': 'blue_white_yellow',
+            'filled': True,
+            'stroked': True,
+            'extruded': False,
+            'line_width_min_pixels': 2,
+            'opacity': 70
         })
     ))
 
