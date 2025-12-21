@@ -156,6 +156,10 @@ APP_ICON = "/static/assets/images/unicef.png"
 from flask_appbuilder.security.manager import AUTH_OAUTH
 from enim_sso.oauth_security_manager import EnimOAuthSecurityManager
 
+# Enable proxy fix to trust X-Forwarded-* headers from reverse proxy
+ENABLE_PROXY_FIX = True
+PROXY_FIX_CONFIG = {"x_for": 1, "x_proto": 1, "x_host": 1, "x_port": 1, "x_prefix": 1}
+
 # Set authentication type to OAuth
 AUTH_TYPE = AUTH_OAUTH
 
